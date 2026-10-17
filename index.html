@@ -1,0 +1,155 @@
+
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mis cobranzas</title>
+<style>
+  body{font-family:Arial,sans-serif;margin:0;background:#f4f6f8;color:#222}
+  main{max-width:700px;margin:auto;padding:16px}
+  h1{color:#176b57}
+  section{background:white;padding:16px;margin:14px 0;border-radius:12px}
+  label{display:block;margin:10px 0 4px}
+  input,select,button{box-sizing:border-box;width:100%;padding:11px;border:1px solid #bbb;border-radius:8px;font-size:16px}
+  button{background:#176b57;color:white;border:0;margin-top:12px;font-weight:bold}
+  .resumen{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .dato{background:#eaf5f1;padding:12px;border-radius:8px}
+  .prestamo{border-top:1px solid #ddd;padding:12px 0}
+  small{color:#555}
+</style>
+</head>
+<body>
+<main>
+<h1>Mis cobranzas</h1>
+
+<section>
+  <h2>Resumen de hoy</h2>
+  <div class="resumen">
+    <div class="dato">Préstamos hechos hoy<br><b id="cantidadHoy">0</b></div>
+    <div class="dato">Capital prestado hoy<br><b id="capitalHoy">S/ 0.00</b></div>
+    <div class="dato">Cobrado hoy<br><b id="cobradoHoy">S/ 0.00</b></div>
+    <div class="dato">Interés recibido hoy<br><b id="interesHoy">S/ 0.00</b></div>
+  </div>
+</section>
+
+<section>
+  <h2>Registrar préstamo</h2>
+  <label>Nombre del cliente</label><input id="cliente">
+  <label>Capital prestado (S/)</label><input id="capital" type="number" min="0.01" step="0.01">
+  <label>Interés</label>
+  <select id="tasa"><option value="0.15">15 %</option><option value="0.20">20 %</option></select>
+  <label>Fecha de entrega</label><input id="fecha" type="date">
+  <label>Duración</label>
+  <select id="duracionTipo"><option value="dias">Cantidad de días</option><option value="mes">Un mes calendario</option></select>
+  <label>Días (si elegiste cantidad de días)</label><input id="dias" type="number" value="24" min="1">
+  <label>Frecuencia de cobranza</label>
+  <select id="frecuencia"><option value="diaria">Diaria</option><option value="semanal">Semanal</option></select>
+  <button onclick="crearPrestamo()">Guardar préstamo</button>
+</section>
+
+<section>
+  <h2>Préstamos y pagos</h2>
+  <div id="lista"></div>
+</section>
+</main>
+
+<script>
+const clave = "misCobranzasV1";
+let prestamos = JSON.parse(localStorage.getItem(clave) || "[]");
+const hoyISO = () => new Date().toISOString().slice(0,10);
+document.getElementById("fecha").value = hoyISO();
+
+function guardar(){
+  localStorage.setItem(clave, JSON.stringify(prestamos));
+  mostrar();
+}
+
+function fechaFinal(inicio, tipo, dias){
+  const f = new Date(inicio + "T12:00:00");
+  if(tipo === "mes") f.setMonth(f.getMonth()+1);
+  else f.setDate(f.getDate()+Number(dias));
+  return f.toISOString().slice(0,10);
+}
+
+function crearPrestamo(){
+  const cliente = document.getElementById("cliente").value.trim();
+  const capital = Number(document.getElementById("capital").value);
+  const tasa = Number(document.getElementById("tasa").value);
+  const fecha = document.getElementById("fecha").value;
+  const tipo = document.getElementById("duracionTipo").value;
+  const dias = Number(document.getElementById("dias").value);
+  if(!cliente || capital <= 0 || !fecha || (tipo==="dias" && dias<1)){
+    alert("Completa los datos del préstamo."); return;
+  }
+  const plazo = tipo==="mes" ? null : dias;
+  const vencimiento = fechaFinal(fecha, tipo, dias);
+  const interes = Math.round(capital*tasa*100)/100;
+  const total = capital + interes;
+  const cantidadCuotas = tipo==="mes"
+    ? Math.max(1, Math.ceil((new Date(vencimiento)-new Date(fecha))/(86400000) /
+        (document.getElementById("frecuencia").value==="diaria" ? 1 : 7)))
+    : Math.max(1, Math.ceil(plazo /
+        (document.getElementById("frecuencia").value==="diaria" ? 1 : 7)));
+
+  prestamos.push({
+    id: Date.now(), cliente, capital, tasa, interes, total,
+    fecha, vencimiento, plazo: tipo==="mes" ? "1 mes" : dias+" días",
+    frecuencia: document.getElementById("frecuencia").value,
+    cuotas: cantidadCuotas, pagos:[]
+  });
+  document.getElementById("cliente").value="";
+  document.getElementById("capital").value="";
+  guardar();
+}
+
+function registrarPago(id){
+  const p = prestamos.find(x=>x.id===id);
+  const saldo = p.total - p.pagos.reduce((s,x)=>s+x.monto,0);
+  const monto = Number(prompt(`Saldo por cobrar: S/ ${saldo.toFixed(2)}\n¿Cuánto pagó hoy?`));
+  if(!monto || monto<=0 || monto>saldo+0.001){alert("Ingresa un pago válido que no supere el saldo.");return;}
+  p.pagos.push({monto:Math.round(monto*100)/100, fecha:hoyISO()});
+  guardar();
+}
+
+function mostrar(){
+  const cont = document.getElementById("lista");
+  const hoy = hoyISO();
+  let cantidad=0, capitalHoy=0, cobrado=0, interesHoy=0;
+  prestamos.forEach(p=>{
+    if(p.fecha===hoy){cantidad++; capitalHoy+=p.capital;}
+    p.pagos.forEach(pg=>{
+      if(pg.fecha===hoy){
+        cobrado+=pg.monto;
+        interesHoy+=pg.monto*(p.interes/p.total);
+      }
+    });
+  });
+  document.getElementById("cantidadHoy").textContent=cantidad;
+  document.getElementById("capitalHoy").textContent="S/ "+capitalHoy.toFixed(2);
+  document.getElementById("cobradoHoy").textContent="S/ "+cobrado.toFixed(2);
+  document.getElementById("interesHoy").textContent="S/ "+interesHoy.toFixed(2);
+
+  cont.innerHTML = prestamos.length ? "" : "<p>Aún no hay préstamos registrados.</p>";
+  prestamos.slice().reverse().forEach(p=>{
+    const pagado=p.pagos.reduce((s,x)=>s+x.monto,0);
+    const saldo=Math.max(0,p.total-pagado);
+    const interesCobrado=pagado*(p.interes/p.total);
+    const capitalRecuperado=pagado-interesCobrado;
+    const cuota=p.total/p.cuotas;
+    cont.innerHTML += `<div class="prestamo">
+      <b>${escapar(p.cliente)}</b><br>
+      <small>Entregado: ${p.fecha} · Vence: ${p.vencimiento} · ${p.frecuencia}</small><br>
+      Capital: S/ ${p.capital.toFixed(2)} · Interés total: S/ ${p.interes.toFixed(2)}<br>
+      Total a cobrar: S/ ${p.total.toFixed(2)} · Cuotas aprox.: ${p.cuotas} de S/ ${cuota.toFixed(2)}<br>
+      Pagado: S/ ${pagado.toFixed(2)} · Saldo: S/ ${saldo.toFixed(2)}<br>
+      Recuperado de capital: S/ ${capitalRecuperado.toFixed(2)} · Interés recibido: S/ ${interesCobrado.toFixed(2)}
+      ${saldo>0 ? `<button onclick="registrarPago(${p.id})">Registrar pago</button>` : "<p>Préstamo pagado ✅</p>"}
+    </div>`;
+  });
+}
+function escapar(s){return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+mostrar();
+</script>
+</body>
+</html>
